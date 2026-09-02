@@ -67,6 +67,7 @@ jobs:
               'libfluidsynth-assetloader.so',
               'libgio-2.0.so',
               'libglib-2.0.so',
+              'libgmodule-2.0.so',
           )
           if 'packagingOptions {' not in s:
               block = "    packagingOptions {\n" + ''.join(f"        pickFirst 'lib/arm64-v8a/{lib}'\n" for lib in libs) + "    }\n\n"
@@ -95,6 +96,7 @@ jobs:
           grep -q "pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'" app/build.gradle
           grep -q "pickFirst 'lib/arm64-v8a/libgio-2.0.so'" app/build.gradle
           grep -q "pickFirst 'lib/arm64-v8a/libglib-2.0.so'" app/build.gradle
+          grep -q "pickFirst 'lib/arm64-v8a/libgmodule-2.0.so'" app/build.gradle
           echo "AutoInput patch verification OK"
 
       - name: Make Gradle executable
