@@ -1,0 +1,64 @@
+name: Winlator 11.1 AutoInput APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout patch repository
+        uses: actions/checkout@v4
+        with:
+          path: patch-repo
+
+      - name: Checkout Winlator 11.1 Final
+        uses: actions/checkout@v4
+        with:
+          repository: brunodev85/winlator
+          ref: 6b829aa
+          submodules: recursive
+          path: winlator
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build tools
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1"
+
+      - name: Apply AutoInput patch
+        working-directory: winlator
+        run: |
+          cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
+          cp ../patch-repo/patches/TouchpadView.java app/src/main/java/com/winlator/widget/TouchpadView.java
+          cp ../patch-repo/patches/XServer.java app/src/main/java/com/winlator/xserver/XServer.java
+          cp ../patch-repo/patches/XServerDisplayActivity.java app/src/main/java/com/winlator/XServerDisplayActivity.java
+
+      - name: Make Gradle executable
+        working-directory: winlator
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        working-directory: winlator
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Winlator-11.1-AutoInput-debug
+          path: winlator/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
