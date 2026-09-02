@@ -44,9 +44,11 @@ jobs:
           test -f app/src/main/java/com/winlator/xserver/XServer.java
           test -f app/src/main/java/com/winlator/widget/TouchpadView.java
           test -f app/src/main/java/com/winlator/XServerDisplayActivity.java
+          test -f app/src/main/java/com/winlator/core/NetworkHelper.java
+          test -f app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
           echo "Winlator 11.1 source layout OK"
 
-      - name: Apply AutoInput patch
+      - name: Apply AutoInput and Network patches
         working-directory: winlator
         run: |
           mkdir -p app/src/main/java/com/winlator/inputcontrols
@@ -54,6 +56,7 @@ jobs:
           python3 ../patch-repo/patches/apply_autoinput.py
           python3 ../patch-repo/patches/fix_external_mouse_motion.py
           python3 ../patch-repo/patches/fix_external_mouse_dispatch.py
+          python3 ../patch-repo/patches/fix_network.py
 
       - name: Fix native library packaging conflicts
         working-directory: winlator
@@ -96,8 +99,12 @@ jobs:
           grep -q "AXIS_RELATIVE_X" app/src/main/java/com/winlator/widget/TouchpadView.java
           grep -q "AXIS_RELATIVE_Y" app/src/main/java/com/winlator/widget/TouchpadView.java
           grep -q "isExternalMouse" app/src/main/java/com/winlator/XServerDisplayActivity.java
+          grep -q "getDNSAddresses" app/src/main/java/com/winlator/core/NetworkHelper.java
+          grep -q "getGatewayAddress" app/src/main/java/com/winlator/core/NetworkHelper.java
+          grep -q "resolv.conf" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
+          grep -q "network-status" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
           grep -q "pickFirst '\*\*/\*.so'" app/build.gradle
-          echo "AutoInput patch verification OK"
+          echo "AutoInput + Network patch verification OK"
 
       - name: Make Gradle executable
         working-directory: winlator
@@ -110,7 +117,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-11.1-AutoInput-debug
+          name: Winlator-11.1-AutoInput-Network-debug
           path: winlator/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
