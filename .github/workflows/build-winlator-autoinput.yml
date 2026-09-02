@@ -15,43 +15,60 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: patch-repo
-      - name: Checkout Winlator 11.1 Final
+
+      - name: Checkout Winlator 11.1 app source
         uses: actions/checkout@v4
         with:
-          repository: brunodev85/winlator
-          ref: v11.1.0
-          submodules: recursive
+          repository: brunodev85/winlator-app
+          ref: 86b60043afee150b9bd3567d24abe349d8a723c4
           path: winlator
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
       - name: Install Android build dependencies
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1"
+
+      - name: Verify Winlator source layout
+        working-directory: winlator
+        run: |
+          test -f app/src/main/java/com/winlator/xserver/XServer.java
+          test -f app/src/main/java/com/winlator/widget/TouchpadView.java
+          test -f app/src/main/java/com/winlator/XServerDisplayActivity.java
+          echo "Winlator 11.1 source layout OK"
+
       - name: Apply AutoInput patch
         working-directory: winlator
         run: |
           mkdir -p app/src/main/java/com/winlator/inputcontrols
           cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
           python3 ../patch-repo/patches/apply_autoinput.py
+
       - name: Verify patched sources
         working-directory: winlator
         run: |
           grep -q "ExternalInputDeviceManager" app/src/main/java/com/winlator/XServerDisplayActivity.java
           grep -q "injectPointerButtonState" app/src/main/java/com/winlator/xserver/XServer.java
           grep -q "syncExternalMouseButtons" app/src/main/java/com/winlator/widget/TouchpadView.java
+          echo "AutoInput patch verification OK"
+
       - name: Make Gradle executable
         working-directory: winlator
         run: chmod +x gradlew
+
       - name: Build debug APK
         working-directory: winlator
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
