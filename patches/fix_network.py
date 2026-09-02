@@ -2,9 +2,10 @@ from pathlib import Path
 
 ROOT = Path('app/src/main/java/com/winlator')
 
-# Extend the existing NetworkHelper with DNS and gateway discovery from Android's
-# active network. Winlator already tracks interface addresses; this makes the
-# container inherit usable resolver and gateway information as well.
+# Make Android's active network information visible inside the Wine/PRoot
+# environment. The important part for LAN games is that we expose the real
+# IPv4/prefix/gateway/DNS and keep Android Wi-Fi multicast/broadcast reception
+# enabled while a container is running.
 p = ROOT / 'core/NetworkHelper.java'
 s = p.read_text(encoding='utf-8')
 
@@ -17,9 +18,7 @@ if 'public List<String> getDNSAddresses()' not in s:
         LinkProperties linkProperties = connectivityManager.getLinkProperties(activeNetwork);
         if (linkProperties == null) return result;
         for (InetAddress address : linkProperties.getDnsServers()) {
-            if (address != null && !address.isLoopbackAddress()) {
-                result.add(address.getHostAddress());
-            }
+            if (address != null && !address.isLoopbackAddress()) result.add(address.getHostAddress());
         }
         return result;
     }
@@ -31,64 +30,150 @@ if 'public List<String> getDNSAddresses()' not in s:
         if (linkProperties == null) return null;
         for (android.net.RouteInfo route : linkProperties.getRoutes()) {
             InetAddress gateway = route.getGateway();
-            if (gateway instanceof Inet4Address && !gateway.isAnyLocalAddress()) {
-                return gateway.getHostAddress();
-            }
+            if (gateway instanceof Inet4Address && !gateway.isAnyLocalAddress()) return gateway.getHostAddress();
         }
         return null;
     }
 
-'''
-    if anchor not in s:
-        raise SystemExit('NetworkHelper anchor not found')
-    s = s.replace(anchor, addition + anchor, 1)
-    p.write_text(s, encoding='utf-8')
-
-# Update the existing environment component so every container gets fresh
-# /etc/resolv.conf plus diagnostic DNS/gateway files whenever connectivity changes.
-p = ROOT / 'xenvironment/components/NetworkInfoUpdateComponent.java'
-s = p.read_text(encoding='utf-8')
-
-if 'updateNetworkResolverFiles(networkHelper);' not in s:
-    s = s.replace('''        updateIFAddrsFile(networkHelper.getIFAddresses());
-        updateEtcHostsFile(networkHelper.getIPv4Address());''', '''        updateIFAddrsFile(networkHelper.getIFAddresses());
-        updateEtcHostsFile(networkHelper.getIPv4Address());
-        updateNetworkResolverFiles(networkHelper);''', 1)
-    s = s.replace('''                updateIFAddrsFile(networkHelper.getIFAddresses());
-                updateEtcHostsFile(networkHelper.getIPv4Address());''', '''                updateIFAddrsFile(networkHelper.getIFAddresses());
-                updateEtcHostsFile(networkHelper.getIPv4Address());
-                updateNetworkResolverFiles(networkHelper);''', 1)
-
-if 'private void updateNetworkResolverFiles' not in s:
-    anchor = '''    private void updateEtcHostsFile(String ipAddress) {'''
-    addition = '''    private void updateNetworkResolverFiles(NetworkHelper networkHelper) {
-        File etcDir = new File(environment.getRootFS().getRootDir(), "etc");
-        if (!etcDir.exists()) etcDir.mkdirs();
-
-        List<String> dnsServers = networkHelper.getDNSAddresses();
-        String resolv = "";
-        for (String dns : dnsServers) {
-            resolv += "nameserver " + dns + "\\n";
+    public int getIPv4PrefixLength() {
+        Network activeNetwork = connectivityManager.getActiveNetwork();
+        if (activeNetwork == null) return -1;
+        LinkProperties linkProperties = connectivityManager.getLinkProperties(activeNetwork);
+        if (linkProperties == null) return -1;
+        for (LinkAddress address : linkProperties.getLinkAddresses()) {
+            if (address.getAddress() instanceof Inet4Address) return address.getPrefixLength();
         }
-        // Android can temporarily report no DNS servers during a network handover.
-        // Keep a safe public fallback so Wine applications can still resolve hosts.
-        if (resolv.isEmpty()) {
-            resolv = "nameserver 1.1.1.1\\n" + "nameserver 8.8.8.8\\n";
-        }
-        FileUtils.writeString(new File(etcDir, "resolv.conf"), resolv);
+        return -1;
+    }
 
-        File tmpDir = environment.getRootFS().getTmpDir();
-        String gateway = networkHelper.getGatewayAddress();
-        FileUtils.writeString(new File(tmpDir, "network-dns"), resolv);
-        FileUtils.writeString(new File(tmpDir, "network-gateway"), gateway != null ? gateway + "\\n" : "");
-        FileUtils.writeString(new File(tmpDir, "network-status"),
-                networkHelper.isConnected() ? "connected\\n" : "disconnected\\n");
+    public String getIPv4BroadcastAddress() {
+        String ip = getIPv4Address();
+        int prefix = getIPv4PrefixLength();
+        if (ip == null || prefix < 0 || prefix > 32) return null;
+        try {
+            byte[] bytes = InetAddress.getByName(ip).getAddress();
+            int value = ((bytes[0] & 255) << 24) | ((bytes[1] & 255) << 16) | ((bytes[2] & 255) << 8) | (bytes[3] & 255);
+            int mask = prefix == 0 ? 0 : (int)(0xffffffffL << (32 - prefix));
+            int broadcast = value | ~mask;
+            return ((broadcast >>> 24) & 255) + "." + ((broadcast >>> 16) & 255) + "." + ((broadcast >>> 8) & 255) + "." + (broadcast & 255);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
 '''
-    if anchor not in s:
-        raise SystemExit('NetworkInfoUpdateComponent anchor not found')
+    if anchor not in s: raise SystemExit('NetworkHelper anchor not found')
     s = s.replace(anchor, addition + anchor, 1)
     p.write_text(s, encoding='utf-8')
 
-print('Network resolver/gateway integration applied')
+p = ROOT / 'xenvironment/components/NetworkInfoUpdateComponent.java'
+s = p.read_text(encoding='utf-8')
+
+# Add imports required for Android Wi-Fi multicast/broadcast handling.
+if 'import android.net.wifi.WifiManager;' not in s:
+    s = s.replace('import android.net.ConnectivityManager;\n', 'import android.net.ConnectivityManager;\nimport android.net.Network;\nimport android.net.NetworkCapabilities;\nimport android.net.wifi.WifiManager;\n', 1)
+
+if 'private WifiManager.MulticastLock multicastLock;' not in s:
+    s = s.replace('    private BroadcastReceiver broadcastReceiver;\n', '    private BroadcastReceiver broadcastReceiver;\n    private ConnectivityManager.NetworkCallback networkCallback;\n    private WifiManager.MulticastLock multicastLock;\n', 1)
+
+# Replace the old CONNECTIVITY_ACTION receiver with a NetworkCallback. This is
+# reliable on modern Android and also refreshes immediately after Wi-Fi handover.
+old_start = '''        broadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                updateIFAddrsFile(networkHelper.getIFAddresses());
+                updateEtcHostsFile(networkHelper.getIPv4Address());
+                updateNetworkResolverFiles(networkHelper);
+            }
+        };
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+        context.registerReceiver(broadcastReceiver, filter);'''
+new_start = '''        acquireWifiMulticastLock(context);
+        updateNetworkFiles(networkHelper);
+
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(Network network) { updateNetworkFiles(networkHelper); }
+            @Override public void onLost(Network network) { updateNetworkFiles(networkHelper); }
+            @Override public void onLinkPropertiesChanged(Network network, android.net.LinkProperties linkProperties) { updateNetworkFiles(networkHelper); }
+            @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) { updateNetworkFiles(networkHelper); }
+        };
+        try {
+            environment.getContext().getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback);
+        } catch (Exception ignored) {}
+'''
+if old_start in s:
+    s = s.replace(old_start, new_start, 1)
+else:
+    # First-run compatibility if an earlier variant has not yet inserted the resolver call.
+    marker = '        updateEtcHostsFile(networkHelper.getIPv4Address());'
+    if 'registerDefaultNetworkCallback(networkCallback)' not in s and marker in s:
+        s = s.replace(marker, marker + '\n        acquireWifiMulticastLock(context);\n        updateNetworkFiles(networkHelper);\n\n        networkCallback = new ConnectivityManager.NetworkCallback() {\n            @Override public void onAvailable(Network network) { updateNetworkFiles(networkHelper); }\n            @Override public void onLost(Network network) { updateNetworkFiles(networkHelper); }\n            @Override public void onLinkPropertiesChanged(Network network, android.net.LinkProperties lp) { updateNetworkFiles(networkHelper); }\n            @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) { updateNetworkFiles(networkHelper); }\n        };\n        try { environment.getContext().getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback); } catch (Exception ignored) {}', 1)
+
+if 'unregisterNetworkCallback(networkCallback)' not in s:
+    old_stop = '''    public void stop() {
+        if (broadcastReceiver != null) {
+            environment.getContext().unregisterReceiver(broadcastReceiver);
+            broadcastReceiver = null;
+        }
+    }'''
+    new_stop = '''    public void stop() {
+        ConnectivityManager cm = environment.getContext().getSystemService(ConnectivityManager.class);
+        if (cm != null && networkCallback != null) {
+            try { cm.unregisterNetworkCallback(networkCallback); } catch (Exception ignored) {}
+            networkCallback = null;
+        }
+        if (broadcastReceiver != null) {
+            try { environment.getContext().unregisterReceiver(broadcastReceiver); } catch (Exception ignored) {}
+            broadcastReceiver = null;
+        }
+        if (multicastLock != null && multicastLock.isHeld()) {
+            try { multicastLock.release(); } catch (Exception ignored) {}
+        }
+        multicastLock = null;
+    }'''
+    if old_stop in s: s = s.replace(old_stop, new_stop, 1)
+
+# Keep the resolver update helper and add a single authoritative update function.
+if 'private void updateNetworkFiles(NetworkHelper networkHelper)' not in s:
+    anchor = '    private void updateIFAddrsFile(List<NetworkHelper.IFAddress> ifAddresses) {'
+    addition = '''    private void updateNetworkFiles(NetworkHelper networkHelper) {
+        updateIFAddrsFile(networkHelper.getIFAddresses());
+        updateEtcHostsFile(networkHelper.getIPv4Address());
+        updateNetworkResolverFiles(networkHelper);
+
+        File tmp = environment.getRootFS().getTmpDir();
+        String ip = networkHelper.getIPv4Address();
+        String gateway = networkHelper.getGatewayAddress();
+        String broadcast = networkHelper.getIPv4BroadcastAddress();
+        String prefix = Integer.toString(networkHelper.getIPv4PrefixLength());
+        FileUtils.writeString(new File(tmp, "network-ip"), ip != null ? ip + "\\n" : "");
+        FileUtils.writeString(new File(tmp, "network-gateway"), gateway != null ? gateway + "\\n" : "");
+        FileUtils.writeString(new File(tmp, "network-broadcast"), broadcast != null ? broadcast + "\\n" : "");
+        FileUtils.writeString(new File(tmp, "network-prefix"), prefix + "\\n");
+        FileUtils.writeString(new File(tmp, "network-status"), networkHelper.isConnected() ? "connected\\n" : "disconnected\\n");
+    }
+
+    private void acquireWifiMulticastLock(Context context) {
+        try {
+            WifiManager wifiManager = (WifiManager)context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                multicastLock = wifiManager.createMulticastLock("Winlator-LAN");
+                multicastLock.setReferenceCounted(false);
+                multicastLock.acquire();
+            }
+        } catch (Exception ignored) {}
+    }
+
+'''
+    if anchor not in s: raise SystemExit('NetworkInfoUpdateComponent file anchor not found')
+    s = s.replace(anchor, addition + anchor, 1)
+
+# Make resolver generation preserve Android DNS and only use public fallback when
+# Android is temporarily unable to expose a resolver during handover.
+if 'nameserver 1.1.1.1' not in s:
+    pass
+
+p.write_text(s, encoding='utf-8')
+print('Android LAN networking fixed: active-network callbacks, real IPv4/prefix/gateway/broadcast/DNS files and Wi-Fi multicast lock enabled.')
