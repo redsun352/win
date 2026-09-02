@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 ROOT = Path('app/src/main/java/com/winlator')
 
@@ -18,10 +17,12 @@ if start < 0 or end < 0:
 
 new_method = '''    private void submitSuggestion(String ssid, String password, String capabilities) {
         try {
-            // Suggestions belong to this application. Remove our previous request
-            // before adding a fresh one so a stale password/network entry cannot win.
-            try { wifiManager.removeNetworkSuggestions(wifiManager.getNetworkSuggestions()); }
-            catch (Exception ignored) {}
+            // Suggestions belong to this application. On Android 11+ remove our
+            // previous requests so stale credentials cannot win.
+            if (Build.VERSION.SDK_INT >= 30) {
+                try { wifiManager.removeNetworkSuggestions(wifiManager.getNetworkSuggestions()); }
+                catch (Exception ignored) {}
+            }
 
             WifiNetworkSuggestion.Builder b = new WifiNetworkSuggestion.Builder().setSsid(ssid);
             String caps = capabilities != null ? capabilities.toUpperCase(java.util.Locale.US) : "";
@@ -29,12 +30,12 @@ new_method = '''    private void submitSuggestion(String ssid, String password, 
             boolean enhancedOpen = caps.contains("OWE");
             boolean secured = caps.contains("WPA") || caps.contains("WEP") || caps.contains("SAE");
 
-            if (wpa3 && password.length() > 0) {
+            if (wpa3 && password.length() > 0 && Build.VERSION.SDK_INT >= 30) {
                 b.setWpa3Passphrase(password);
             } else if (secured && password.length() > 0) {
-                // WPA/WPA2 mixed networks are accepted through WPA2 here.
+                // WPA/WPA2 mixed networks are accepted through WPA2.
                 b.setWpa2Passphrase(password);
-            } else if (enhancedOpen) {
+            } else if (enhancedOpen && Build.VERSION.SDK_INT >= 30) {
                 b.setIsEnhancedOpen(true);
             } else if (secured) {
                 Toast.makeText(requireContext(), "Bu ağ parola istiyor. Parolayı girin.", Toast.LENGTH_LONG).show();
@@ -78,4 +79,4 @@ for perm in permissions:
     if tag not in ms:
         ms = tag + '\n' + ms
 manifest.write_text(ms, encoding='utf-8')
-print('Wi-Fi connection handling hardened: stale suggestions cleared, WPA3/OWE supported, refusal falls back to Android Wi-Fi settings, required network permissions ensured.')
+print('Wi-Fi connection handling hardened: stale suggestions cleared on Android 11+, WPA3/OWE guarded by API level, refusal falls back to Android Wi-Fi settings, required network permissions ensured.')
