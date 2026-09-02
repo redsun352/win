@@ -48,7 +48,7 @@ jobs:
           test -f app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
           echo "Winlator 11.1 source layout OK"
 
-      - name: Apply AutoInput and Network patches
+      - name: Apply AutoInput, Network and Wi-Fi panel patches
         working-directory: winlator
         run: |
           mkdir -p app/src/main/java/com/winlator/inputcontrols
@@ -57,6 +57,7 @@ jobs:
           python3 ../patch-repo/patches/fix_external_mouse_motion.py
           python3 ../patch-repo/patches/fix_external_mouse_dispatch.py
           python3 ../patch-repo/patches/fix_network.py
+          python3 ../patch-repo/patches/add_windows_wifi_panel.py
 
       - name: Fix native library packaging conflicts
         working-directory: winlator
@@ -103,8 +104,12 @@ jobs:
           grep -q "getGatewayAddress" app/src/main/java/com/winlator/core/NetworkHelper.java
           grep -q "resolv.conf" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
           grep -q "network-status" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
+          grep -q "class WifiNetworkFragment" app/src/main/java/com/winlator/WifiNetworkFragment.java
+          grep -q "MENU_WIFI_NETWORK" app/src/main/java/com/winlator/MainActivity.java
+          grep -q "NEARBY_WIFI_DEVICES" app/src/main/AndroidManifest.xml
+          grep -q "WifiNetworkSuggestion" app/src/main/java/com/winlator/WifiNetworkFragment.java
           grep -q "pickFirst '\*\*/\*.so'" app/build.gradle
-          echo "AutoInput + Network patch verification OK"
+          echo "AutoInput + Network + Windows Wi-Fi panel verification OK"
 
       - name: Make Gradle executable
         working-directory: winlator
@@ -117,7 +122,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-11.1-AutoInput-Network-debug
+          name: Winlator-11.1-AutoInput-WifiPanel-debug
           path: winlator/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
