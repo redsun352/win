@@ -6,8 +6,10 @@ import android.view.InputDevice;
 import android.view.KeyEvent;
 
 /**
- * Detects physical USB and Bluetooth keyboards without requiring key bindings.
- * Android delivers both kinds of keyboards as SOURCE_KEYBOARD devices.
+ * Detects real USB/Bluetooth keyboards without requiring key bindings.
+ * Physical keyboards are SOURCE_KEYBOARD devices. Some Android keyboard
+ * drivers report KEYBOARD_TYPE_NONE, so detection intentionally does not
+ * require an alphabetic/non-alphabetic keyboard type.
  */
 public final class ExternalKeyboardManager implements InputManager.InputDeviceListener {
     private final InputManager inputManager;
@@ -29,18 +31,15 @@ public final class ExternalKeyboardManager implements InputManager.InputDeviceLi
 
     public static boolean isExternalKeyboard(KeyEvent event) {
         if (event == null) return false;
-        InputDevice device = event.getDevice();
-        return isExternalKeyboard(device);
+        return isExternalKeyboard(event.getDevice());
     }
 
     public static boolean isExternalKeyboard(InputDevice device) {
-        if (device == null) return false;
+        if (device == null || device.isVirtual()) return false;
         int sources = device.getSources();
-        if ((sources & InputDevice.SOURCE_KEYBOARD) != InputDevice.SOURCE_KEYBOARD) return false;
-        if (device.isVirtual()) return false;
-        int keyboardType = device.getKeyboardType();
-        return keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC ||
-               keyboardType == InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC;
+        // Real USB and Bluetooth keyboards normally expose SOURCE_KEYBOARD.
+        // Do not reject KEYBOARD_TYPE_NONE: several Android HID drivers use it.
+        return (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
     }
 
     private void refresh() {
