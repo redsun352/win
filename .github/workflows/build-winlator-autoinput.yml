@@ -58,6 +58,14 @@ jobs:
           python3 ../patch-repo/patches/fix_external_mouse_dispatch.py
           python3 ../patch-repo/patches/fix_network.py
           python3 ../patch-repo/patches/add_windows_wifi_panel.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/winlator/WifiNetworkFragment.java')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('ContextCompat.registerReceiver(requireContext(), receiver, f, ContextCompat.RECEIVER_NOT_EXPORTED);', 'requireContext().registerReceiver(receiver, f);')
+          p.write_text(s, encoding='utf-8')
+          print('Wi-Fi receiver compatibility fix applied')
+          PY
 
       - name: Fix native library packaging conflicts
         working-directory: winlator
@@ -67,28 +75,14 @@ jobs:
           p = Path('app/build.gradle')
           s = p.read_text()
           anchor = "    lintOptions {"
-          libs = (
-              'libFLAC.so',
-              'libfluidsynth.so',
-              'libfluidsynth-assetloader.so',
-              'libgio-2.0.so',
-              'libglib-2.0.so',
-              'libgmodule-2.0.so',
-              'libgobject-2.0.so',
-              'libgthread-2.0.so',
-              'libinstpatch-1.0.so',
-          )
+          libs = ('libFLAC.so','libfluidsynth.so','libfluidsynth-assetloader.so','libgio-2.0.so','libglib-2.0.so','libgmodule-2.0.so','libgobject-2.0.so','libgthread-2.0.so','libinstpatch-1.0.so')
           if 'packagingOptions {' not in s:
               block = "    packagingOptions {\n        pickFirst '**/*.so'\n" + ''.join(f"        pickFirst 'lib/arm64-v8a/{lib}'\n" for lib in libs) + "    }\n\n"
-              if anchor not in s:
-                  raise SystemExit('Gradle packaging anchor not found')
+              if anchor not in s: raise SystemExit('Gradle packaging anchor not found')
               s = s.replace(anchor, block + anchor, 1)
           elif "        pickFirst '**/*.so'" not in s:
-              if "    }\n\n    lintOptions {" not in s:
-                  raise SystemExit('Existing packagingOptions block not found')
               s = s.replace("    }\n\n    lintOptions {", "        pickFirst '**/*.so'\n    }\n\n    lintOptions {", 1)
           p.write_text(s)
-          print('Native library packaging rules applied')
           PY
 
       - name: Verify patched sources
