@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path('app/src/main/java/com/winlator')
 
@@ -10,8 +11,6 @@ def patch(path, old, new):
     if old not in s:
         raise SystemExit(f'Patch anchor not found: {path}')
     p.write_text(s.replace(old, new, 1), encoding='utf-8')
-
-# New device classifier/registry is copied separately by the workflow.
 
 # XServer: expose a button-state setter for robust held-button/drag handling.
 patch('xserver/XServer.java', '''    public void injectPointerButtonPress(Pointer.Button buttonCode) {
@@ -102,26 +101,27 @@ handler = '''    public boolean onExternalMouseEvent(MotionEvent event) {
     }
 
     private void setExternalMouseButton(int button, boolean pressed) {
+        // Android MotionEvent button bit values are stable: primary=1, secondary=2, tertiary=4.
         switch (button) {
-            case MotionEvent.BUTTON_PRIMARY:
+            case 1:
                 xServer.injectPointerButtonState(Pointer.Button.BUTTON_LEFT, pressed);
-                externalMouseButtonState = pressed ? externalMouseButtonState | MotionEvent.BUTTON_PRIMARY : externalMouseButtonState & ~MotionEvent.BUTTON_PRIMARY;
+                externalMouseButtonState = pressed ? externalMouseButtonState | 1 : externalMouseButtonState & ~1;
                 break;
-            case MotionEvent.BUTTON_SECONDARY:
+            case 2:
                 xServer.injectPointerButtonState(Pointer.Button.BUTTON_RIGHT, pressed);
-                externalMouseButtonState = pressed ? externalMouseButtonState | MotionEvent.BUTTON_SECONDARY : externalMouseButtonState & ~MotionEvent.BUTTON_SECONDARY;
+                externalMouseButtonState = pressed ? externalMouseButtonState | 2 : externalMouseButtonState & ~2;
                 break;
-            case MotionEvent.BUTTON_TERTIARY:
+            case 4:
                 xServer.injectPointerButtonState(Pointer.Button.BUTTON_MIDDLE, pressed);
-                externalMouseButtonState = pressed ? externalMouseButtonState | MotionEvent.BUTTON_TERTIARY : externalMouseButtonState & ~MotionEvent.BUTTON_TERTIARY;
+                externalMouseButtonState = pressed ? externalMouseButtonState | 4 : externalMouseButtonState & ~4;
                 break;
         }
     }
 
     private void syncExternalMouseButtons(int state) {
-        final int primary = MotionEvent.BUTTON_PRIMARY;
-        final int secondary = MotionEvent.BUTTON_SECONDARY;
-        final int tertiary = MotionEvent.BUTTON_TERTIARY;
+        final int primary = 1;
+        final int secondary = 2;
+        final int tertiary = 4;
         if ((state & primary) != 0 && (externalMouseButtonState & primary) == 0) setExternalMouseButton(primary, true);
         else if ((state & primary) == 0 && (externalMouseButtonState & primary) != 0) setExternalMouseButton(primary, false);
         if ((state & secondary) != 0 && (externalMouseButtonState & secondary) == 0) setExternalMouseButton(secondary, true);
@@ -141,20 +141,21 @@ if old_capture in s:
             syncExternalMouseButtons(event.getButtonState());''', 1)
 p.write_text(s, encoding='utf-8')
 
-# Activity: create and close the physical-device registry.
+# Activity: add the physical-device registry and hook it into the EXISTING lifecycle.
 p = ROOT / 'XServerDisplayActivity.java'
 s = p.read_text(encoding='utf-8')
-if 'ExternalInputDeviceManager' not in s:
+if 'import com.winlator.inputcontrols.ExternalInputDeviceManager;' not in s:
     s = s.replace('import com.winlator.inputcontrols.ExternalController;', 'import com.winlator.inputcontrols.ExternalController;\nimport com.winlator.inputcontrols.ExternalInputDeviceManager;', 1)
+if 'private ExternalInputDeviceManager externalInputDeviceManager;' not in s:
     s = s.replace('private TouchpadView touchpadView;', 'private TouchpadView touchpadView;\n    private ExternalInputDeviceManager externalInputDeviceManager;', 1)
+if 'externalInputDeviceManager = new ExternalInputDeviceManager(this);' not in s:
     s = s.replace('super.onCreate(savedInstanceState);', 'super.onCreate(savedInstanceState);\n        externalInputDeviceManager = new ExternalInputDeviceManager(this);', 1)
-    idx = s.rfind('\n}')
-    s = s[:idx] + '''\n    @Override
-    protected void onDestroy() {
-        if (externalInputDeviceManager != null) externalInputDeviceManager.close();
-        super.onDestroy();
-    }
-''' + s[idx:]
+if 'externalInputDeviceManager.close();' not in s:
+    match = re.search(r'(\n\s*@Override\s*\n\s*protected void onDestroy\(\)\s*\{)', s)
+    if not match:
+        raise SystemExit('Existing XServerDisplayActivity.onDestroy() not found')
+    insert_at = match.end()
+    s = s[:insert_at] + '\n        if (externalInputDeviceManager != null) externalInputDeviceManager.close();' + s[insert_at:]
 p.write_text(s, encoding='utf-8')
 
 print('AutoInput patch applied successfully')
