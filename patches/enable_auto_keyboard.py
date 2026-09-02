@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 activity = Path('app/src/main/java/com/winlator/XServerDisplayActivity.java')
 s = activity.read_text(encoding='utf-8')
@@ -27,13 +28,26 @@ if 'externalKeyboardManager.close();' not in s:
         raise SystemExit('onDestroy stop anchor not found')
     s = s.replace(anchor, '        if (externalKeyboardManager != null) externalKeyboardManager.close();\n' + anchor, 1)
 
-# Physical keyboards must never enter InputControlsView's key-binding/capture flow.
-old = '''    public boolean dispatchKeyEvent(KeyEvent event) {
-        // Physical USB/Bluetooth keyboards are native input devices. Never send their keys
-        // through the touchscreen/gamepad binding layer. Consume the event here even when
-        // Wine does not recognize a particular Android key code, so InputControlsView can
-        // never fall back into key-assignment/capture mode.
+# Replace dispatchKeyEvent by method signature rather than exact upstream comments.
+# This keeps the patch compatible with small upstream/source edits and, most importantly,
+# prevents physical USB/Bluetooth keyboards from ever entering InputControlsView's
+# key-assignment/capture flow.
+method_pattern = re.compile(
+    r'    @Override\n'
+    r'    public boolean dispatchKeyEvent\(KeyEvent event\) \{.*?\n'
+    r'    \}',
+    re.DOTALL,
+)
+method_match = method_pattern.search(s)
+if not method_match:
+    raise SystemExit('dispatchKeyEvent method not found')
+
+new_method = '''    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
         if (ExternalKeyboardManager.isExternalKeyboard(event)) {
+            // Physical USB/Bluetooth keyboard events never enter InputControlsView.
+            // Consume every physical keyboard event here so key-assignment/capture
+            // cannot be triggered, even for a key Winlator does not map.
             xServer.keyboard.onKeyEvent(event);
             return true;
         }
@@ -41,28 +55,13 @@ old = '''    public boolean dispatchKeyEvent(KeyEvent event) {
         return (!inputControlsView.onKeyEvent(event) && !winHandler.onKeyEvent(event) && xServer.keyboard.onKeyEvent(event)) ||
                (!ExternalController.isGameController(event.getDevice()) && super.dispatchKeyEvent(event));
     }'''
-new = '''    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (ExternalKeyboardManager.isExternalKeyboard(event)) {
-            // Always consume physical USB/Bluetooth keyboard events here. They bypass
-            // InputControlsView entirely, so no key-assignment UI can be triggered.
-            xServer.keyboard.onKeyEvent(event);
-            return true;
-        }
-
-        return (!inputControlsView.onKeyEvent(event) && !winHandler.onKeyEvent(event) && xServer.keyboard.onKeyEvent(event)) ||
-               (!ExternalController.isGameController(event.getDevice()) && super.dispatchKeyEvent(event));
-    }'''
-if old not in s:
-    raise SystemExit('dispatchKeyEvent block not found')
-s = s.replace(old, new, 1)
+s = s[:method_match.start()] + new_method + s[method_match.end():]
 activity.write_text(s, encoding='utf-8')
 
 keyboard = Path('app/src/main/java/com/winlator/xserver/Keyboard.java')
 s = keyboard.read_text(encoding='utf-8')
 
-# The upstream table has 159 entries, while Android can report larger HID keycodes.
-# Enlarge it and safely handle all Android keycodes without ever returning control to
-# InputControlsView. Existing XKeycode mappings are preserved.
+# Android HID/keyboard keycodes can exceed the legacy 159-entry table.
 s = s.replace('XKeycode[] keycodeMap = new XKeycode[159];', 'XKeycode[] keycodeMap = new XKeycode[512];', 1)
 
 old = '''            int keyCode = event.getKeyCode();
@@ -73,9 +72,8 @@ old = '''            int keyCode = event.getKeyCode();
 new = '''            int keyCode = event.getKeyCode();
             XKeycode xKeycode = keyCode >= 0 && keyCode < keycodeMap.length ? keycodeMap[keyCode] : null;
 
-            // For a physical keyboard, preserve printable Unicode characters even when
-            // Android reports a keycode that is not present in Winlator's legacy table.
-            // getCustomXKeycodeForKeysym() provides a real X11 key slot for the character.
+            // Preserve printable Unicode characters from physical keyboards even when
+            // Android reports a HID/layout keycode that is absent from the legacy table.
             if (xKeycode == null && event.getDevice() != null &&
                     event.getDevice().getKeyboardType() != android.view.InputDevice.KEYBOARD_TYPE_NONE) {
                 int unicode = event.getUnicodeChar();
@@ -89,6 +87,6 @@ new = '''            int keyCode = event.getKeyCode();
 if old not in s:
     raise SystemExit('keyboard dispatch block not found')
 s = s.replace(old, new, 1)
-
 keyboard.write_text(s, encoding='utf-8')
-print('Physical USB/Bluetooth keyboard path fixed: all reported keycodes are consumed, legacy table expanded, printable unmapped HID keys use dynamic X11 key slots, and key-assignment fallback is disabled.')
+
+print('Auto keyboard patch updated: dispatchKeyEvent replacement is now source-compatible, all physical keyboard events bypass key assignment, and extended/unmapped printable HID keys use dynamic X11 key slots.')
