@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: brunodev85/winlator
-          ref: 6b829aa
+          ref: v11.1.0
           submodules: recursive
           path: winlator
       - name: Set up JDK 17
