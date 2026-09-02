@@ -53,7 +53,7 @@ jobs:
           cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
           python3 ../patch-repo/patches/apply_autoinput.py
 
-      - name: Fix native library packaging conflict
+      - name: Fix native library packaging conflicts
         working-directory: winlator
         run: |
           python3 - <<'PY'
@@ -61,13 +61,16 @@ jobs:
           p = Path('app/build.gradle')
           s = p.read_text()
           anchor = "    lintOptions {"
-          patch = "    packagingOptions {\n        pickFirst 'lib/arm64-v8a/libFLAC.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'\n    }\n\n"
-          if 'pickFirst' not in s:
+          block = "    packagingOptions {\n        pickFirst 'lib/arm64-v8a/libFLAC.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'\n    }\n\n"
+          if 'packagingOptions {' not in s:
               if anchor not in s:
                   raise SystemExit('Gradle packaging anchor not found')
-              s = s.replace(anchor, patch + anchor, 1)
-          elif "libfluidsynth-assetloader.so" not in s:
-              s = s.replace("        pickFirst 'lib/arm64-v8a/libFLAC.so'\n", "        pickFirst 'lib/arm64-v8a/libFLAC.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'\n", 1)
+              s = s.replace(anchor, block + anchor, 1)
+          else:
+              for lib in ('libFLAC.so', 'libfluidsynth.so', 'libfluidsynth-assetloader.so'):
+                  line = f"        pickFirst 'lib/arm64-v8a/{lib}'"
+                  if line not in s:
+                      s = s.replace("    }\n\n    lintOptions {", f"    {line}\n    }}\n\n    lintOptions {{", 1)
           p.write_text(s)
           print('Native library packaging rules applied')
           PY
@@ -79,6 +82,7 @@ jobs:
           grep -q "injectPointerButtonState" app/src/main/java/com/winlator/xserver/XServer.java
           grep -q "syncExternalMouseButtons" app/src/main/java/com/winlator/widget/TouchpadView.java
           grep -q "pickFirst 'lib/arm64-v8a/libFLAC.so'" app/build.gradle
+          grep -q "pickFirst 'lib/arm64-v8a/libfluidsynth.so'" app/build.gradle
           grep -q "pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'" app/build.gradle
           echo "AutoInput patch verification OK"
 
