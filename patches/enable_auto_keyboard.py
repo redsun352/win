@@ -27,6 +27,7 @@ if 'externalKeyboardManager.close();' not in s:
         raise SystemExit('onDestroy stop anchor not found')
     s = s.replace(anchor, '        if (externalKeyboardManager != null) externalKeyboardManager.close();\n' + anchor, 1)
 
+# Physical keyboards must never enter InputControlsView's key-binding/capture flow.
 old = '''    public boolean dispatchKeyEvent(KeyEvent event) {
         // Physical USB/Bluetooth keyboards are native input devices. Never send their keys
         // through the touchscreen/gamepad binding layer. Consume the event here even when
@@ -41,9 +42,9 @@ old = '''    public boolean dispatchKeyEvent(KeyEvent event) {
                (!ExternalController.isGameController(event.getDevice()) && super.dispatchKeyEvent(event));
     }'''
 new = '''    public boolean dispatchKeyEvent(KeyEvent event) {
-        // Any real HID keyboard is handled exclusively by the native keyboard path.
-        // Never let physical keyboard events reach InputControlsView/key-assignment logic.
         if (ExternalKeyboardManager.isExternalKeyboard(event)) {
+            // Always consume physical USB/Bluetooth keyboard events here. They bypass
+            // InputControlsView entirely, so no key-assignment UI can be triggered.
             xServer.keyboard.onKeyEvent(event);
             return true;
         }
@@ -59,23 +60,35 @@ activity.write_text(s, encoding='utf-8')
 keyboard = Path('app/src/main/java/com/winlator/xserver/Keyboard.java')
 s = keyboard.read_text(encoding='utf-8')
 
-# Expand physical keyboard coverage by translating Android keycodes directly to
-# X11 keysyms for the keys that are commonly absent from the compact Winlator map.
-# The generated helper is used before the legacy table, so unmapped HID keys do not
-# fall into the input-controls assignment path.
-helper = '''\n    private XKeycode getPhysicalXKeycode(KeyEvent event) {\n        int keyCode = event.getKeyCode();\n        int keysym = 0;\n        switch (keyCode) {\n            case KeyEvent.KEYCODE_ESCAPE: keysym = 0xff1b; break;\n            case KeyEvent.KEYCODE_TAB: keysym = 0xff09; break;\n            case KeyEvent.KEYCODE_ENTER: keysym = 0xff0d; break;\n            case KeyEvent.KEYCODE_DEL: keysym = 0xff08; break;\n            case KeyEvent.KEYCODE_FORWARD_DEL: keysym = 0xffff; break;\n            case KeyEvent.KEYCODE_MOVE_HOME: keysym = 0xff50; break;\n            case KeyEvent.KEYCODE_MOVE_END: keysym = 0xff57; break;\n            case KeyEvent.KEYCODE_PAGE_UP: keysym = 0xff55; break;\n            case KeyEvent.KEYCODE_PAGE_DOWN: keysym = 0xff56; break;\n            case KeyEvent.KEYCODE_INSERT: keysym = 0xff63; break;\n            case KeyEvent.KEYCODE_DPAD_UP: keysym = 0xff52; break;\n            case KeyEvent.KEYCODE_DPAD_DOWN: keysym = 0xff54; break;\n            case KeyEvent.KEYCODE_DPAD_LEFT: keysym = 0xff51; break;\n            case KeyEvent.KEYCODE_DPAD_RIGHT: keysym = 0xff53; break;\n            case KeyEvent.KEYCODE_SHIFT_LEFT: keysym = 0xffe1; break;\n            case KeyEvent.KEYCODE_SHIFT_RIGHT: keysym = 0xffe2; break;\n            case KeyEvent.KEYCODE_CTRL_LEFT: keysym = 0xffe3; break;\n            case KeyEvent.KEYCODE_CTRL_RIGHT: keysym = 0xffe4; break;\n            case KeyEvent.KEYCODE_ALT_LEFT: keysym = 0xffe9; break;\n            case KeyEvent.KEYCODE_ALT_RIGHT: keysym = 0xffea; break;\n            case KeyEvent.KEYCODE_META_LEFT: keysym = 0xffeb; break;\n            case KeyEvent.KEYCODE_META_RIGHT: keysym = 0xffec; break;\n            case KeyEvent.KEYCODE_CAPS_LOCK: keysym = 0xffe5; break;\n            case KeyEvent.KEYCODE_NUM_LOCK: keysym = 0xff7f; break;\n            case KeyEvent.KEYCODE_SCROLL_LOCK: keysym = 0xff14; break;\n            case KeyEvent.KEYCODE_PRINT_SCREEN: keysym = 0xff61; break;\n            case KeyEvent.KEYCODE_BREAK: keysym = 0xff13; break;\n            case KeyEvent.KEYCODE_F1: keysym = 0xffbe; break;\n            case KeyEvent.KEYCODE_F2: keysym = 0xffbf; break;\n            case KeyEvent.KEYCODE_F3: keysym = 0xffc0; break;\n            case KeyEvent.KEYCODE_F4: keysym = 0xffc1; break;\n            case KeyEvent.KEYCODE_F5: keysym = 0xffc2; break;\n            case KeyEvent.KEYCODE_F6: keysym = 0xffc3; break;\n            case KeyEvent.KEYCODE_F7: keysym = 0xffc4; break;\n            case KeyEvent.KEYCODE_F8: keysym = 0xffc5; break;\n            case KeyEvent.KEYCODE_F9: keysym = 0xffc6; break;\n            case KeyEvent.KEYCODE_F10: keysym = 0xffc7; break;\n            case KeyEvent.KEYCODE_F11: keysym = 0xffc8; break;\n            case KeyEvent.KEYCODE_F12: keysym = 0xffc9; break;\n            case KeyEvent.KEYCODE_SPACE: keysym = 0x20; break;\n            default: break;\n        }\n        if (keysym == 0) return null;\n        return new XKeycode(keysym);\n    }\n'''
+# The upstream table has 159 entries, while Android can report larger HID keycodes.
+# Enlarge it and safely handle all Android keycodes without ever returning control to
+# InputControlsView. Existing XKeycode mappings are preserved.
+s = s.replace('XKeycode[] keycodeMap = new XKeycode[159];', 'XKeycode[] keycodeMap = new XKeycode[512];', 1)
 
-if 'private XKeycode getPhysicalXKeycode(KeyEvent event)' not in s:
-    marker = '\n}'
-    pos = s.rfind(marker)
-    if pos < 0: raise SystemExit('Keyboard class end not found')
-    s = s[:pos] + helper + s[pos:]
+old = '''            int keyCode = event.getKeyCode();
+            XKeycode xKeycode = keycodeMap[keyCode];
+            if (xKeycode == null) return false;
 
-# Prefer the physical-key path before the legacy compact map.
-needle = '            int keyCode = event.getKeyCode();\n            // Android has key codes outside the compact table used by Winlator.\n'
-if needle in s and 'XKeycode physicalKeycode = getPhysicalXKeycode(event);' not in s:
-    replacement = '''            XKeycode physicalKeycode = getPhysicalXKeycode(event);\n            if (physicalKeycode != null) {\n                // Keep the same press/release handling as the legacy path.\n                return handleKeycode(event, physicalKeycode);\n            }\n\n            int keyCode = event.getKeyCode();\n            // Android has key codes outside the compact table used by Winlator.\n'''
-    s = s.replace(needle, replacement, 1)
+            if (action == KeyEvent.ACTION_DOWN) {'''
+new = '''            int keyCode = event.getKeyCode();
+            XKeycode xKeycode = keyCode >= 0 && keyCode < keycodeMap.length ? keycodeMap[keyCode] : null;
+
+            // For a physical keyboard, preserve printable Unicode characters even when
+            // Android reports a keycode that is not present in Winlator's legacy table.
+            // getCustomXKeycodeForKeysym() provides a real X11 key slot for the character.
+            if (xKeycode == null && event.getDevice() != null &&
+                    event.getDevice().getKeyboardType() != android.view.InputDevice.KEYBOARD_TYPE_NONE) {
+                int unicode = event.getUnicodeChar();
+                if (unicode != 0 && (action == KeyEvent.ACTION_DOWN || action == KeyEvent.ACTION_UP)) {
+                    xKeycode = getCustomXKeycodeForKeysym(unicode);
+                }
+            }
+            if (xKeycode == null) return false;
+
+            if (action == KeyEvent.ACTION_DOWN) {'''
+if old not in s:
+    raise SystemExit('keyboard dispatch block not found')
+s = s.replace(old, new, 1)
 
 keyboard.write_text(s, encoding='utf-8')
-print('Physical keyboard coverage expanded; USB/Bluetooth keyboards bypass key assignment.')
+print('Physical USB/Bluetooth keyboard path fixed: all reported keycodes are consumed, legacy table expanded, printable unmapped HID keys use dynamic X11 key slots, and key-assignment fallback is disabled.')
