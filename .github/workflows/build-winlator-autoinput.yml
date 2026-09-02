@@ -60,14 +60,16 @@ jobs:
           from pathlib import Path
           p = Path('app/build.gradle')
           s = p.read_text()
+          anchor = "    lintOptions {"
+          patch = "    packagingOptions {\n        pickFirst 'lib/arm64-v8a/libFLAC.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'\n    }\n\n"
           if 'pickFirst' not in s:
-              anchor = "    lintOptions {"
-              patch = "    packagingOptions {\n        pickFirst 'lib/arm64-v8a/libFLAC.so'\n    }\n\n"
               if anchor not in s:
                   raise SystemExit('Gradle packaging anchor not found')
               s = s.replace(anchor, patch + anchor, 1)
-              p.write_text(s)
-          print('Native library packaging rule applied')
+          elif "libfluidsynth-assetloader.so" not in s:
+              s = s.replace("        pickFirst 'lib/arm64-v8a/libFLAC.so'\n", "        pickFirst 'lib/arm64-v8a/libFLAC.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'\n", 1)
+          p.write_text(s)
+          print('Native library packaging rules applied')
           PY
 
       - name: Verify patched sources
@@ -77,6 +79,7 @@ jobs:
           grep -q "injectPointerButtonState" app/src/main/java/com/winlator/xserver/XServer.java
           grep -q "syncExternalMouseButtons" app/src/main/java/com/winlator/widget/TouchpadView.java
           grep -q "pickFirst 'lib/arm64-v8a/libFLAC.so'" app/build.gradle
+          grep -q "pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'" app/build.gradle
           echo "AutoInput patch verification OK"
 
       - name: Make Gradle executable
