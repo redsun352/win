@@ -37,6 +37,7 @@ jobs:
       - name: Apply AutoInput patch
         working-directory: winlator
         run: |
+          mkdir -p app/src/main/java/com/winlator/inputcontrols
           cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
           python3 ../patch-repo/patches/apply_autoinput.py
       - name: Verify patched sources
