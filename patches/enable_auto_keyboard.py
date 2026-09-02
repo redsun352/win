@@ -25,8 +25,6 @@ if 'externalKeyboardManager.close();' not in s:
     anchor = '        winHandler.stop();\n'
     if anchor not in s:
         raise SystemExit('onDestroy/exit stop anchor not found')
-    # First occurrence is onDestroy. Add cleanup there; exit() also stops the handler but activity destruction
-    # will perform the definitive unregister, avoiding duplicate listener registration.
     s = s.replace(anchor, '        if (externalKeyboardManager != null) externalKeyboardManager.close();\n' + anchor, 1)
 
 old = '''    public boolean dispatchKeyEvent(KeyEvent event) {
@@ -35,10 +33,12 @@ old = '''    public boolean dispatchKeyEvent(KeyEvent event) {
     }'''
 new = '''    public boolean dispatchKeyEvent(KeyEvent event) {
         // Physical USB/Bluetooth keyboards are native input devices. Never send their keys
-        // through the touchscreen/gamepad binding layer: route them directly to Wine/X11.
-        // This makes typing, shortcuts, function keys and held keys work without any mapping.
+        // through the touchscreen/gamepad binding layer. Consume the event here even when
+        // Wine does not recognize a particular Android key code, so InputControlsView can
+        // never fall back into key-assignment/capture mode.
         if (ExternalKeyboardManager.isExternalKeyboard(event)) {
-            return xServer.keyboard.onKeyEvent(event) || super.dispatchKeyEvent(event);
+            xServer.keyboard.onKeyEvent(event);
+            return true;
         }
 
         return (!inputControlsView.onKeyEvent(event) && !winHandler.onKeyEvent(event) && xServer.keyboard.onKeyEvent(event)) ||
@@ -63,4 +63,4 @@ if old in s:
     s = s.replace(old, new, 1)
 keyboard.write_text(s, encoding='utf-8')
 
-print('Automatic USB/Bluetooth keyboard support applied: no key mapping for physical keyboards.')
+print('Automatic USB/Bluetooth keyboard support applied: physical keyboard events are always consumed by the native keyboard path; no key assignment fallback.')
