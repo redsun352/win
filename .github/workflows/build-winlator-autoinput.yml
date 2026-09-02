@@ -61,15 +61,18 @@ jobs:
           p = Path('app/build.gradle')
           s = p.read_text()
           anchor = "    lintOptions {"
-          block = "    packagingOptions {\n        pickFirst 'lib/arm64-v8a/libFLAC.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth.so'\n        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'\n    }\n\n"
+          libs = ('libFLAC.so', 'libfluidsynth.so', 'libfluidsynth-assetloader.so', 'libgio-2.0.so')
           if 'packagingOptions {' not in s:
+              block = "    packagingOptions {\n" + ''.join(f"        pickFirst 'lib/arm64-v8a/{lib}'\n" for lib in libs) + "    }\n\n"
               if anchor not in s:
                   raise SystemExit('Gradle packaging anchor not found')
               s = s.replace(anchor, block + anchor, 1)
           else:
-              for lib in ('libFLAC.so', 'libfluidsynth.so', 'libfluidsynth-assetloader.so'):
+              for lib in libs:
                   line = f"        pickFirst 'lib/arm64-v8a/{lib}'"
                   if line not in s:
+                      if "    }\n\n    lintOptions {" not in s:
+                          raise SystemExit('Existing packagingOptions block not found')
                       s = s.replace("    }\n\n    lintOptions {", f"    {line}\n    }}\n\n    lintOptions {{", 1)
           p.write_text(s)
           print('Native library packaging rules applied')
@@ -84,6 +87,7 @@ jobs:
           grep -q "pickFirst 'lib/arm64-v8a/libFLAC.so'" app/build.gradle
           grep -q "pickFirst 'lib/arm64-v8a/libfluidsynth.so'" app/build.gradle
           grep -q "pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'" app/build.gradle
+          grep -q "pickFirst 'lib/arm64-v8a/libgio-2.0.so'" app/build.gradle
           echo "AutoInput patch verification OK"
 
       - name: Make Gradle executable
