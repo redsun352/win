@@ -52,6 +52,7 @@ jobs:
           mkdir -p app/src/main/java/com/winlator/inputcontrols
           cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
           python3 ../patch-repo/patches/apply_autoinput.py
+          python3 ../patch-repo/patches/fix_external_mouse_motion.py
 
       - name: Fix native library packaging conflicts
         working-directory: winlator
@@ -91,6 +92,8 @@ jobs:
           grep -q "ExternalInputDeviceManager" app/src/main/java/com/winlator/XServerDisplayActivity.java
           grep -q "injectPointerButtonState" app/src/main/java/com/winlator/xserver/XServer.java
           grep -q "syncExternalMouseButtons" app/src/main/java/com/winlator/widget/TouchpadView.java
+          grep -q "AXIS_RELATIVE_X" app/src/main/java/com/winlator/widget/TouchpadView.java
+          grep -q "AXIS_RELATIVE_Y" app/src/main/java/com/winlator/widget/TouchpadView.java
           grep -q "pickFirst '\*\*/\*.so'" app/build.gradle
           echo "AutoInput patch verification OK"
 
