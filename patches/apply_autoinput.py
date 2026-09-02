@@ -35,7 +35,7 @@ patch('xserver/XServer.java', '''    public void injectPointerButtonPress(Pointe
 p = ROOT / 'widget/TouchpadView.java'
 s = p.read_text(encoding='utf-8')
 if 'externalMouseButtonState' not in s:
-    s = s.replace('private boolean moveCursorToTouchpoint;', '''private boolean moveCursorToTouchpoint;
+    s = s.replace('private boolean moveCursorToTouchpoint = false;', '''private boolean moveCursorToTouchpoint = false;
     private int externalMouseButtonState = 0;''', 1)
 
 start = s.find('    public boolean onExternalMouseEvent(MotionEvent event) {')
