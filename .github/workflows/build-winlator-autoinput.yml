@@ -53,12 +53,30 @@ jobs:
           cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
           python3 ../patch-repo/patches/apply_autoinput.py
 
+      - name: Fix native library packaging conflict
+        working-directory: winlator
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/build.gradle')
+          s = p.read_text()
+          if 'pickFirst' not in s:
+              anchor = "    lintOptions {"
+              patch = "    packagingOptions {\n        pickFirst 'lib/arm64-v8a/libFLAC.so'\n    }\n\n"
+              if anchor not in s:
+                  raise SystemExit('Gradle packaging anchor not found')
+              s = s.replace(anchor, patch + anchor, 1)
+              p.write_text(s)
+          print('Native library packaging rule applied')
+          PY
+
       - name: Verify patched sources
         working-directory: winlator
         run: |
           grep -q "ExternalInputDeviceManager" app/src/main/java/com/winlator/XServerDisplayActivity.java
           grep -q "injectPointerButtonState" app/src/main/java/com/winlator/xserver/XServer.java
           grep -q "syncExternalMouseButtons" app/src/main/java/com/winlator/widget/TouchpadView.java
+          grep -q "pickFirst 'lib/arm64-v8a/libFLAC.so'" app/build.gradle
           echo "AutoInput patch verification OK"
 
       - name: Make Gradle executable
