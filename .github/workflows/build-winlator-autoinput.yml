@@ -46,18 +46,21 @@ jobs:
           test -f app/src/main/java/com/winlator/XServerDisplayActivity.java
           test -f app/src/main/java/com/winlator/core/NetworkHelper.java
           test -f app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
+          test -f app/src/main/java/com/winlator/xserver/Keyboard.java
           echo "Winlator 11.1 source layout OK"
 
-      - name: Apply AutoInput, Network and Wi-Fi panel patches
+      - name: Apply AutoInput, Network, Wi-Fi and automatic Keyboard patches
         working-directory: winlator
         run: |
           mkdir -p app/src/main/java/com/winlator/inputcontrols
           cp ../patch-repo/patches/ExternalInputDeviceManager.java app/src/main/java/com/winlator/inputcontrols/ExternalInputDeviceManager.java
+          cp ../patch-repo/patches/ExternalKeyboardManager.java app/src/main/java/com/winlator/inputcontrols/ExternalKeyboardManager.java
           python3 ../patch-repo/patches/apply_autoinput.py
           python3 ../patch-repo/patches/fix_external_mouse_motion.py
           python3 ../patch-repo/patches/fix_external_mouse_dispatch.py
           python3 ../patch-repo/patches/fix_network.py
           python3 ../patch-repo/patches/add_windows_wifi_panel.py
+          python3 ../patch-repo/patches/enable_auto_keyboard.py
           python3 - <<'PY'
           from pathlib import Path
           p = Path('app/src/main/java/com/winlator/WifiNetworkFragment.java')
@@ -102,8 +105,13 @@ jobs:
           grep -q "MENU_WIFI_NETWORK" app/src/main/java/com/winlator/MainActivity.java
           grep -q "NEARBY_WIFI_DEVICES" app/src/main/AndroidManifest.xml
           grep -q "WifiNetworkSuggestion" app/src/main/java/com/winlator/WifiNetworkFragment.java
+          grep -q "class ExternalKeyboardManager" app/src/main/java/com/winlator/inputcontrols/ExternalKeyboardManager.java
+          grep -q "isExternalKeyboard(event)" app/src/main/java/com/winlator/XServerDisplayActivity.java
+          grep -q "source keyboard" app/src/main/java/com/winlator/inputcontrols/ExternalKeyboardManager.java || true
+          grep -q "xServer.keyboard.onKeyEvent(event)" app/src/main/java/com/winlator/XServerDisplayActivity.java
+          grep -q "keyCode >= 0 && keyCode < keycodeMap.length" app/src/main/java/com/winlator/xserver/Keyboard.java
           grep -q "pickFirst '\*\*/\*.so'" app/build.gradle
-          echo "AutoInput + Network + Windows Wi-Fi panel verification OK"
+          echo "AutoInput + Network + Windows Wi-Fi + automatic USB/Bluetooth Keyboard verification OK"
 
       - name: Make Gradle executable
         working-directory: winlator
@@ -116,7 +124,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Winlator-11.1-AutoInput-WifiPanel-debug
+          name: Winlator-11.1-AutoInput-WifiPanel-AutoKeyboard-debug
           path: winlator/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
