@@ -39,6 +39,20 @@ activity.write_text(s, encoding='utf-8')
 
 keyboard = Path('app/src/main/java/com/winlator/xserver/Keyboard.java')
 s = keyboard.read_text(encoding='utf-8')
+
+if 'import com.winlator.inputcontrols.ExternalKeyboardManager;' not in s:
+    anchor = 'import com.winlator.inputcontrols.ExternalController;\n'
+    if anchor not in s: raise SystemExit('Keyboard ExternalController import anchor not found')
+    s = s.replace(anchor, anchor + 'import com.winlator.inputcontrols.ExternalKeyboardManager;\n', 1)
+
+# Do not let the generic gamepad filter swallow a Bluetooth HID keyboard that
+# Android exposes as GAMEPAD/JOYSTICK. Keyboard classification has priority.
+s = s.replace(
+    'if (ExternalController.isGameController(event.getDevice())) return false;',
+    'if (ExternalController.isGameController(event.getDevice()) && !ExternalKeyboardManager.isExternalKeyboard(event)) return false;',
+    1
+)
+
 s, n = re.subn(r'XKeycode\[\] keycodeMap = new XKeycode\[\d+\];', 'XKeycode[] keycodeMap = new XKeycode[512];', s, count=1)
 if n != 1: raise SystemExit('keycode map declaration not found')
 
@@ -73,4 +87,4 @@ s, n = lookup.subn(replacement, s, count=1)
 if n != 1: raise SystemExit('keyboard lookup block not found')
 keyboard.write_text(s, encoding='utf-8')
 
-print('Bluetooth HID keyboard fallback patch applied successfully')
+print('Bluetooth HID keyboard routing + XInput priority patch applied successfully')
