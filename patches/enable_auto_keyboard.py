@@ -94,23 +94,4 @@ if old not in s:
 s = s.replace(old, new, 1)
 keyboard.write_text(s, encoding='utf-8')
 
-manager = Path('patches/ExternalKeyboardManager.java')
-s = manager.read_text(encoding='utf-8')
-old = '''        int sources = device.getSources();
-        // Real USB and Bluetooth keyboards normally expose SOURCE_KEYBOARD.
-        // Do not reject KEYBOARD_TYPE_NONE: several Android HID drivers use it.
-        return (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
-'''
-new = '''        int sources = device.getSources();
-        // Android HID implementations are inconsistent: some expose SOURCE_KEYBOARD,
-        // while others expose a keyboard type but omit the source bit. Accept either
-        // physical-device signal. Virtual IMEs/devices were already rejected above.
-        return (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD ||
-               device.getKeyboardType() != InputDevice.KEYBOARD_TYPE_NONE;
-'''
-if old not in s:
-    raise SystemExit('keyboard detection block not found')
-s = s.replace(old, new, 1)
-manager.write_text(s, encoding='utf-8')
-
-print('Global physical keyboard bridge hardened: physical HID detection accepts source OR keyboard type, keyboard events bypass key-assignment globally, extended keycodes are safe, and unmapped physical printable keys use X11 custom keysyms.')
+print('Global physical keyboard bridge hardened: physical HID detection accepts source OR keyboard type, keyboard events bypass key assignment globally, extended keycodes are safe, and unmapped physical printable keys use X11 custom keysyms.')
