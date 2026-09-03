@@ -33,7 +33,6 @@ new_method = '''    private void submitSuggestion(String ssid, String password, 
             if (wpa3 && password.length() > 0 && Build.VERSION.SDK_INT >= 30) {
                 b.setWpa3Passphrase(password);
             } else if (secured && password.length() > 0) {
-                // WPA/WPA2 mixed networks are accepted through WPA2.
                 b.setWpa2Passphrase(password);
             } else if (enhancedOpen && Build.VERSION.SDK_INT >= 30) {
                 b.setIsEnhancedOpen(true);
@@ -65,7 +64,9 @@ new_method = '''    private void submitSuggestion(String ssid, String password, 
 s = s[:start] + new_method + s[end:]
 p.write_text(s, encoding='utf-8')
 
-# Ensure all permissions needed by the Wi-Fi UI and multicast LAN support exist.
+# Add required permissions inside the <manifest> element, after its opening tag.
+# They must NOT appear before the XML declaration or before the manifest root,
+# otherwise android:name is outside the namespace scope and parsing fails.
 manifest = Path('app/src/main/AndroidManifest.xml')
 ms = manifest.read_text(encoding='utf-8')
 permissions = [
@@ -74,20 +75,17 @@ permissions = [
     'android.permission.ACCESS_WIFI_STATE',
     'android.permission.CHANGE_WIFI_STATE',
 ]
+root_start = ms.find('<manifest')
+if root_start < 0:
+    raise SystemExit('AndroidManifest.xml manifest root not found')
+root_open_end = ms.find('>', root_start)
+if root_open_end < 0:
+    raise SystemExit('AndroidManifest.xml manifest opening tag not found')
+root_tag = ms[root_start:root_open_end + 1]
 for perm in permissions:
     tag = '<uses-permission android:name="' + perm + '" />'
     if tag not in ms:
-        # Keep the XML declaration and document root intact. The old implementation
-        # prepended permission tags before the declaration, which makes the Android
-        # namespace unavailable and breaks manifest parsing.
-        declaration_end = ms.find('?>')
-        if declaration_end >= 0:
-            insert_at = declaration_end + 2
-            ms = ms[:insert_at] + '\n' + tag + ms[insert_at:]
-        else:
-            root_end = ms.find('>')
-            if root_end < 0:
-                raise SystemExit('AndroidManifest.xml root not found')
-            ms = ms[:root_end + 1] + '\n' + tag + ms[root_end + 1:]
+        ms = ms[:root_open_end + 1] + '\n    ' + tag + ms[root_open_end + 1:]
+        root_open_end += len('\n    ' + tag)
 manifest.write_text(ms, encoding='utf-8')
-print('Wi-Fi connection handling hardened: stale suggestions cleared on Android 11+, WPA3/OWE guarded by API level, refusal falls back to Android Wi-Fi settings, required network permissions ensured without corrupting the manifest XML declaration.')
+print('Wi-Fi connection handling hardened and required permissions are inserted inside the manifest root without corrupting XML namespace scope.')
