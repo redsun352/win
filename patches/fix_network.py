@@ -141,6 +141,7 @@ if 'private void updateNetworkFiles(NetworkHelper networkHelper)' not in s:
     addition = '''    private void updateNetworkFiles(NetworkHelper networkHelper) {
         updateIFAddrsFile(networkHelper.getIFAddresses());
         updateEtcHostsFile(networkHelper.getIPv4Address());
+        // The resolver helper below updates /etc/resolv.conf from Android DNS data.
         updateNetworkResolverFiles(networkHelper);
 
         File tmp = environment.getRootFS().getTmpDir();
@@ -169,11 +170,6 @@ if 'private void updateNetworkFiles(NetworkHelper networkHelper)' not in s:
 '''
     if anchor not in s: raise SystemExit('NetworkInfoUpdateComponent file anchor not found')
     s = s.replace(anchor, addition + anchor, 1)
-
-# Make resolver generation preserve Android DNS and only use public fallback when
-# Android is temporarily unable to expose a resolver during handover.
-if 'nameserver 1.1.1.1' not in s:
-    pass
 
 p.write_text(s, encoding='utf-8')
 print('Android LAN networking fixed: active-network callbacks, real IPv4/prefix/gateway/broadcast/DNS files and Wi-Fi multicast lock enabled.')
