@@ -68,12 +68,17 @@ public final class ExternalInputDeviceManager implements InputManager.InputDevic
 
     private static Role classify(InputDevice d) {
         final int sources = d.getSources();
+
+        // Bluetooth HID keyboards can advertise JOYSTICK/GAMEPAD together
+        // with keyboard capabilities on some Android vendor builds. Keyboard
+        // must win so the XInput device list cannot steal their key events.
+        if (d.getKeyboardType() != InputDevice.KEYBOARD_TYPE_NONE ||
+            (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD) return Role.KEYBOARD;
+
         if ((sources & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE ||
             (sources & InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD) return Role.MOUSE;
         if ((sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
             (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return Role.GAMEPAD;
-        if (d.getKeyboardType() != InputDevice.KEYBOARD_TYPE_NONE ||
-            (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD) return Role.KEYBOARD;
         return Role.UNKNOWN;
     }
 
