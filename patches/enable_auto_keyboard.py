@@ -28,10 +28,6 @@ if 'externalKeyboardManager.close();' not in s:
         raise SystemExit('onDestroy stop anchor not found')
     s = s.replace(anchor, '        if (externalKeyboardManager != null) externalKeyboardManager.close();\n' + anchor, 1)
 
-# Replace dispatchKeyEvent by method signature rather than exact upstream comments.
-# This keeps the patch compatible with small upstream/source edits and, most importantly,
-# prevents physical USB/Bluetooth keyboards from ever entering InputControlsView's
-# key-assignment/capture flow.
 method_pattern = re.compile(
     r'    @Override\n'
     r'    public boolean dispatchKeyEvent\(KeyEvent event\) \{.*?\n'
@@ -44,12 +40,11 @@ if not method_match:
 
 new_method = '''    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // Physical USB/Bluetooth keyboards are a global input device for the
+        // whole Wine/XServer desktop. They must never be routed through the
+        // touch/key-assignment overlay. Forward the event directly to XServer.
         if (ExternalKeyboardManager.isExternalKeyboard(event)) {
-            // Physical USB/Bluetooth keyboard events never enter InputControlsView.
-            // Consume every physical keyboard event here so key-assignment/capture
-            // cannot be triggered, even for a key Winlator does not map.
-            xServer.keyboard.onKeyEvent(event);
-            return true;
+            return xServer.keyboard.onKeyEvent(event);
         }
 
         return (!inputControlsView.onKeyEvent(event) && !winHandler.onKeyEvent(event) && xServer.keyboard.onKeyEvent(event)) ||
@@ -61,15 +56,9 @@ activity.write_text(s, encoding='utf-8')
 keyboard = Path('app/src/main/java/com/winlator/xserver/Keyboard.java')
 s = keyboard.read_text(encoding='utf-8')
 
-# Android HID/keyboard keycodes can exceed the legacy 159-entry table.
 s = s.replace('XKeycode[] keycodeMap = new XKeycode[159];', 'XKeycode[] keycodeMap = new XKeycode[512];', 1)
 
 old = '''            int keyCode = event.getKeyCode();
-            XKeycode xKeycode = keycodeMap[keyCode];
-            if (xKeycode == null) return false;
-
-            if (action == KeyEvent.ACTION_DOWN) {'''
-new = '''            int keyCode = event.getKeyCode();
             XKeycode xKeycode = keyCode >= 0 && keyCode < keycodeMap.length ? keycodeMap[keyCode] : null;
 
             // Preserve printable Unicode characters from physical keyboards even when
@@ -82,11 +71,46 @@ new = '''            int keyCode = event.getKeyCode();
                 }
             }
             if (xKeycode == null) return false;
+'''
+new = '''            int keyCode = event.getKeyCode();
+            XKeycode xKeycode = keyCode >= 0 && keyCode < keycodeMap.length ? keycodeMap[keyCode] : null;
 
-            if (action == KeyEvent.ACTION_DOWN) {'''
+            // Physical HID keyboards can report KEYBOARD_TYPE_NONE on Android.
+            // Do not use keyboard type as a gate: the device was already proven
+            // physical by XServerDisplayActivity. For any unmapped printable key,
+            // allocate an X11 custom keysym slot so layouts such as Turkish Q/F,
+            // accented characters and OEM/HID keys can still reach Wine.
+            if (xKeycode == null && event.getDevice() != null &&
+                    !event.getDevice().isVirtual()) {
+                int unicode = event.getUnicodeChar();
+                if (unicode != 0 && (action == KeyEvent.ACTION_DOWN || action == KeyEvent.ACTION_UP)) {
+                    xKeycode = getCustomXKeycodeForKeysym(unicode);
+                }
+            }
+            if (xKeycode == null) return false;
+'''
 if old not in s:
     raise SystemExit('keyboard dispatch block not found')
 s = s.replace(old, new, 1)
 keyboard.write_text(s, encoding='utf-8')
 
-print('Auto keyboard patch updated: dispatchKeyEvent replacement is now source-compatible, all physical keyboard events bypass key assignment, and extended/unmapped printable HID keys use dynamic X11 key slots.')
+manager = Path('patches/ExternalKeyboardManager.java')
+s = manager.read_text(encoding='utf-8')
+old = '''        int sources = device.getSources();
+        // Real USB and Bluetooth keyboards normally expose SOURCE_KEYBOARD.
+        // Do not reject KEYBOARD_TYPE_NONE: several Android HID drivers use it.
+        return (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
+'''
+new = '''        int sources = device.getSources();
+        // Android HID implementations are inconsistent: some expose SOURCE_KEYBOARD,
+        // while others expose a keyboard type but omit the source bit. Accept either
+        // physical-device signal. Virtual IMEs/devices were already rejected above.
+        return (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD ||
+               device.getKeyboardType() != InputDevice.KEYBOARD_TYPE_NONE;
+'''
+if old not in s:
+    raise SystemExit('keyboard detection block not found')
+s = s.replace(old, new, 1)
+manager.write_text(s, encoding='utf-8')
+
+print('Global physical keyboard bridge hardened: physical HID detection accepts source OR keyboard type, keyboard events bypass key-assignment globally, extended keycodes are safe, and unmapped physical printable keys use X11 custom keysyms.')
