@@ -99,37 +99,51 @@ jobs:
       - name: Verify patched sources
         working-directory: winlator
         run: |
-          grep -Fq "ExternalInputDeviceManager" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "injectPointerButtonState" app/src/main/java/com/winlator/xserver/XServer.java
-          grep -Fq "syncExternalMouseButtons" app/src/main/java/com/winlator/widget/TouchpadView.java
-          grep -Fq "AXIS_RELATIVE_X" app/src/main/java/com/winlator/widget/TouchpadView.java
-          grep -Fq "AXIS_RELATIVE_Y" app/src/main/java/com/winlator/widget/TouchpadView.java
-          grep -Fq "isExternalMouse" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "getDNSAddresses" app/src/main/java/com/winlator/core/NetworkHelper.java
-          grep -Fq "getGatewayAddress" app/src/main/java/com/winlator/core/NetworkHelper.java
-          grep -Fq "getIPv4BroadcastAddress" app/src/main/java/com/winlator/core/NetworkHelper.java
-          grep -Fq "registerDefaultNetworkCallback" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
-          grep -Fq "MulticastLock" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
-          grep -Fq "network-broadcast" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
-          grep -Fq "resolv.conf" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
-          grep -Fq "network-status" app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java
-          grep -Fq "class WifiNetworkFragment" app/src/main/java/com/winlator/WifiNetworkFragment.java
-          grep -Fq "MENU_WIFI_NETWORK" app/src/main/java/com/winlator/MainActivity.java
-          grep -Fq "NEARBY_WIFI_DEVICES" app/src/main/AndroidManifest.xml
-          grep -Fq "CHANGE_WIFI_STATE" app/src/main/AndroidManifest.xml
-          grep -Fq "WifiNetworkSuggestion" app/src/main/java/com/winlator/WifiNetworkFragment.java
-          grep -Fq "setWpa3Passphrase" app/src/main/java/com/winlator/WifiNetworkFragment.java
-          grep -Fq "removeNetworkSuggestions" app/src/main/java/com/winlator/WifiNetworkFragment.java
-          grep -Fq "class ExternalKeyboardManager" app/src/main/java/com/winlator/inputcontrols/ExternalKeyboardManager.java
-          grep -Fq "isExternalKeyboard(event)" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "xServer.keyboard.onKeyEvent(event)" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "keyCode >= 0 && keyCode < keycodeMap.length" app/src/main/java/com/winlator/xserver/Keyboard.java
-          grep -Fq "autoDetectScreenInfo" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "getCurrentWindowMetrics" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "aspect" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "packagingOptions {" app/build.gradle
-          grep -Fq "pickFirst" app/build.gradle
-          echo "AutoInput + LAN/Wi-Fi + Windows Wi-Fi + automatic USB/Bluetooth Keyboard + Auto Screen verification OK"
+          python3 - <<'PY'
+          from pathlib import Path
+          checks = {
+              'external input activity': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'ExternalInputDeviceManager'),
+              'mouse button injection': ('app/src/main/java/com/winlator/xserver/XServer.java', 'injectPointerButtonState'),
+              'mouse button sync': ('app/src/main/java/com/winlator/widget/TouchpadView.java', 'syncExternalMouseButtons'),
+              'relative mouse X': ('app/src/main/java/com/winlator/widget/TouchpadView.java', 'AXIS_RELATIVE_X'),
+              'relative mouse Y': ('app/src/main/java/com/winlator/widget/TouchpadView.java', 'AXIS_RELATIVE_Y'),
+              'external mouse dispatch': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'isExternalMouse'),
+              'DNS': ('app/src/main/java/com/winlator/core/NetworkHelper.java', 'getDNSAddresses'),
+              'gateway': ('app/src/main/java/com/winlator/core/NetworkHelper.java', 'getGatewayAddress'),
+              'broadcast': ('app/src/main/java/com/winlator/core/NetworkHelper.java', 'getIPv4BroadcastAddress'),
+              'network callback': ('app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java', 'registerDefaultNetworkCallback'),
+              'multicast lock': ('app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java', 'MulticastLock'),
+              'broadcast file': ('app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java', 'network-broadcast'),
+              'resolv conf': ('app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java', 'resolv.conf'),
+              'network status': ('app/src/main/java/com/winlator/xenvironment/components/NetworkInfoUpdateComponent.java', 'network-status'),
+              'wifi fragment': ('app/src/main/java/com/winlator/WifiNetworkFragment.java', 'class WifiNetworkFragment'),
+              'wifi menu': ('app/src/main/java/com/winlator/MainActivity.java', 'MENU_WIFI_NETWORK'),
+              'nearby wifi permission': ('app/src/main/AndroidManifest.xml', 'NEARBY_WIFI_DEVICES'),
+              'change wifi permission': ('app/src/main/AndroidManifest.xml', 'CHANGE_WIFI_STATE'),
+              'wifi suggestion': ('app/src/main/java/com/winlator/WifiNetworkFragment.java', 'WifiNetworkSuggestion'),
+              'wpa3': ('app/src/main/java/com/winlator/WifiNetworkFragment.java', 'setWpa3Passphrase'),
+              'remove suggestions': ('app/src/main/java/com/winlator/WifiNetworkFragment.java', 'removeNetworkSuggestions'),
+              'keyboard manager': ('app/src/main/java/com/winlator/inputcontrols/ExternalKeyboardManager.java', 'class ExternalKeyboardManager'),
+              'external keyboard dispatch': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'isExternalKeyboard(event)'),
+              'keyboard forwarding': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'xServer.keyboard.onKeyEvent(event)'),
+              'extended keyboard table': ('app/src/main/java/com/winlator/xserver/Keyboard.java', 'keyCode >= 0 && keyCode < keycodeMap.length'),
+              'auto screen info': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'autoDetectScreenInfo'),
+              'window metrics': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'getCurrentWindowMetrics'),
+              'screen aspect': ('app/src/main/java/com/winlator/XServerDisplayActivity.java', 'aspect'),
+              'gradle packaging block': ('app/build.gradle', 'packagingOptions {'),
+              'gradle pickFirst': ('app/build.gradle', 'pickFirst'),
+          }
+          missing = []
+          for name, (file, marker) in checks.items():
+              text = Path(file).read_text(encoding='utf-8')
+              if marker not in text:
+                  missing.append(f'{name}: {file} -> {marker!r}')
+          if missing:
+              print('PATCH VERIFICATION FAILED:')
+              print('\n'.join(' - ' + x for x in missing))
+              raise SystemExit(1)
+          print(f'Patch verification OK: {len(checks)} markers present')
+          PY
 
       - name: Make Gradle executable
         working-directory: winlator
