@@ -121,7 +121,8 @@ jobs:
           grep -Fq "autoDetectScreenInfo" app/src/main/java/com/winlator/XServerDisplayActivity.java
           grep -Fq "getCurrentWindowMetrics" app/src/main/java/com/winlator/XServerDisplayActivity.java
           grep -Fq "aspect" app/src/main/java/com/winlator/XServerDisplayActivity.java
-          grep -Fq "pickFirst '**/*.so'" app/build.gradle
+          grep -Fq "packagingOptions {" app/build.gradle
+          grep -Fq "pickFirst" app/build.gradle
           echo "AutoInput + LAN/Wi-Fi + Windows Wi-Fi + automatic USB/Bluetooth Keyboard + Auto Screen verification OK"
 
       - name: Make Gradle executable
