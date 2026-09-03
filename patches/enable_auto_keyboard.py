@@ -26,8 +26,8 @@ m = method_pattern.search(s)
 if not m: raise SystemExit('dispatchKeyEvent method not found')
 new_method = '''    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // Physical USB/Bluetooth keyboard events are global: bypass the touch
-        // controls/key-assignment layer and send them directly to XServer/Wine.
+        // Physical USB/Bluetooth HID keyboards are global: bypass touch
+        // controls/key-assignment and forward directly to XServer/Wine.
         if (ExternalKeyboardManager.isExternalKeyboard(event)) {
             return xServer.keyboard.onKeyEvent(event);
         }
@@ -42,18 +42,35 @@ s = keyboard.read_text(encoding='utf-8')
 s, n = re.subn(r'XKeycode\[\] keycodeMap = new XKeycode\[\d+\];', 'XKeycode[] keycodeMap = new XKeycode[512];', s, count=1)
 if n != 1: raise SystemExit('keycode map declaration not found')
 
-# Make Android keycode lookup bounds-safe and support printable physical HID keys
-# regardless of Android's reported keyboard type.
-lookup = re.compile(r'            int keyCode = event\.getKeyCode\(\);\n            XKeycode xKeycode = keycodeMap\[keyCode\];\n            if \(xKeycode == null\) return false;')
+if 'private final java.util.HashMap<Integer, XKeycode> externalKeyMap' not in s:
+    anchor = '    private final XServer xServer;\n'
+    if anchor not in s: raise SystemExit('xServer field anchor not found')
+    s = s.replace(anchor, anchor + '    private final java.util.HashMap<Integer, XKeycode> externalKeyMap = new java.util.HashMap<>();\n', 1)
+
+lookup = re.compile(r'            int keyCode = event\.getKeyCode\(\);\n            XKeycode xKeycode = .*?\n            if \(xKeycode == null\) return false;', re.DOTALL)
 replacement = '''            int keyCode = event.getKeyCode();
+            int physicalKeyId = ((event.getDeviceId() & 0xFFFF) << 16) ^ (event.getScanCode() & 0xFFFF);
             XKeycode xKeycode = (keyCode >= 0 && keyCode < keycodeMap.length) ? keycodeMap[keyCode] : null;
+
+            // Bluetooth HID keyboards on some Android builds expose valid
+            // physical events but report KEYCODE_UNKNOWN or a keycode that is
+            // absent from Winlator's table. Recover printable keys from the
+            // Unicode character and remember the allocated X key for ACTION_UP.
             if (xKeycode == null && event.getDevice() != null && !event.getDevice().isVirtual()) {
-                int unicode = event.getUnicodeChar();
-                if (unicode != 0) xKeycode = getCustomXKeycodeForKeysym(unicode);
+                if (action == KeyEvent.ACTION_DOWN) {
+                    int unicode = event.getUnicodeChar();
+                    if (unicode != 0) {
+                        xKeycode = getCustomXKeycodeForKeysym(unicode);
+                        externalKeyMap.put(physicalKeyId, xKeycode);
+                    }
+                }
+                else if (action == KeyEvent.ACTION_UP) {
+                    xKeycode = externalKeyMap.remove(physicalKeyId);
+                }
             }
             if (xKeycode == null) return false;'''
 s, n = lookup.subn(replacement, s, count=1)
 if n != 1: raise SystemExit('keyboard lookup block not found')
 keyboard.write_text(s, encoding='utf-8')
 
-print('Winlator 11.1 global physical keyboard patch applied successfully')
+print('Bluetooth HID keyboard fallback patch applied successfully')
