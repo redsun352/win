@@ -69,15 +69,12 @@ if 'public List<String> getDNSAddresses()' not in s:
 p = ROOT / 'xenvironment/components/NetworkInfoUpdateComponent.java'
 s = p.read_text(encoding='utf-8')
 
-# Add imports required for Android Wi-Fi multicast/broadcast handling.
 if 'import android.net.wifi.WifiManager;' not in s:
     s = s.replace('import android.net.ConnectivityManager;\n', 'import android.net.ConnectivityManager;\nimport android.net.Network;\nimport android.net.NetworkCapabilities;\nimport android.net.wifi.WifiManager;\n', 1)
 
 if 'private WifiManager.MulticastLock multicastLock;' not in s:
     s = s.replace('    private BroadcastReceiver broadcastReceiver;\n', '    private BroadcastReceiver broadcastReceiver;\n    private ConnectivityManager.NetworkCallback networkCallback;\n    private WifiManager.MulticastLock multicastLock;\n', 1)
 
-# Replace the old CONNECTIVITY_ACTION receiver with a NetworkCallback. This is
-# reliable on modern Android and also refreshes immediately after Wi-Fi handover.
 old_start = '''        broadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -100,16 +97,16 @@ new_start = '''        acquireWifiMulticastLock(context);
             @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) { updateNetworkFiles(networkHelper); }
         };
         try {
-            environment.getContext().getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback);
+            ConnectivityManager cm = environment.getContext().getSystemService(ConnectivityManager.class);
+            if (cm != null) cm.registerDefaultNetworkCallback(networkCallback);
         } catch (Exception ignored) {}
 '''
 if old_start in s:
     s = s.replace(old_start, new_start, 1)
 else:
-    # First-run compatibility if an earlier variant has not yet inserted the resolver call.
     marker = '        updateEtcHostsFile(networkHelper.getIPv4Address());'
     if 'registerDefaultNetworkCallback(networkCallback)' not in s and marker in s:
-        s = s.replace(marker, marker + '\n        acquireWifiMulticastLock(context);\n        updateNetworkFiles(networkHelper);\n\n        networkCallback = new ConnectivityManager.NetworkCallback() {\n            @Override public void onAvailable(Network network) { updateNetworkFiles(networkHelper); }\n            @Override public void onLost(Network network) { updateNetworkFiles(networkHelper); }\n            @Override public void onLinkPropertiesChanged(Network network, android.net.LinkProperties lp) { updateNetworkFiles(networkHelper); }\n            @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) { updateNetworkFiles(networkHelper); }\n        };\n        try { environment.getContext().getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(networkCallback); } catch (Exception ignored) {}', 1)
+        s = s.replace(marker, marker + '\n        acquireWifiMulticastLock(context);\n        updateNetworkFiles(networkHelper);\n\n        networkCallback = new ConnectivityManager.NetworkCallback() {\n            @Override public void onAvailable(Network network) { updateNetworkFiles(networkHelper); }\n            @Override public void onLost(Network network) { updateNetworkFiles(networkHelper); }\n            @Override public void onLinkPropertiesChanged(Network network, android.net.LinkProperties lp) { updateNetworkFiles(networkHelper); }\n            @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) { updateNetworkFiles(networkHelper); }\n        };\n        try { ConnectivityManager cm = environment.getContext().getSystemService(ConnectivityManager.class); if (cm != null) cm.registerDefaultNetworkCallback(networkCallback); } catch (Exception ignored) {}', 1)
 
 if 'unregisterNetworkCallback(networkCallback)' not in s:
     old_stop = '''    public void stop() {
@@ -135,7 +132,6 @@ if 'unregisterNetworkCallback(networkCallback)' not in s:
     }'''
     if old_stop in s: s = s.replace(old_stop, new_stop, 1)
 
-# Keep the resolver update helper and add a single authoritative update function.
 if 'private void updateNetworkFiles(NetworkHelper networkHelper)' not in s:
     anchor = '    private void updateIFAddrsFile(List<NetworkHelper.IFAddress> ifAddresses) {'
     addition = '''    private void updateNetworkFiles(NetworkHelper networkHelper) {
@@ -154,6 +150,17 @@ if 'private void updateNetworkFiles(NetworkHelper networkHelper)' not in s:
         FileUtils.writeString(new File(tmp, "network-broadcast"), broadcast != null ? broadcast + "\\n" : "");
         FileUtils.writeString(new File(tmp, "network-prefix"), prefix + "\\n");
         FileUtils.writeString(new File(tmp, "network-status"), networkHelper.isConnected() ? "connected\\n" : "disconnected\\n");
+    }
+
+    private void updateNetworkResolverFiles(NetworkHelper networkHelper) {
+        // Keep Wine/PRoot DNS resolution aligned with Android's active network.
+        StringBuilder content = new StringBuilder();
+        for (String dns : networkHelper.getDNSAddresses()) {
+            if (dns != null && !dns.isEmpty()) content.append("nameserver ").append(dns).append("\\n");
+        }
+        if (content.length() == 0) content.append("nameserver 1.1.1.1\\n");
+        File resolver = new File(environment.getRootFS().getRootDir(), "etc/resolv.conf");
+        FileUtils.writeString(resolver, content.toString());
     }
 
     private void acquireWifiMulticastLock(Context context) {
