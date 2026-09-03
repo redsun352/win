@@ -77,6 +77,17 @@ permissions = [
 for perm in permissions:
     tag = '<uses-permission android:name="' + perm + '" />'
     if tag not in ms:
-        ms = tag + '\n' + ms
+        # Keep the XML declaration and document root intact. The old implementation
+        # prepended permission tags before the declaration, which makes the Android
+        # namespace unavailable and breaks manifest parsing.
+        declaration_end = ms.find('?>')
+        if declaration_end >= 0:
+            insert_at = declaration_end + 2
+            ms = ms[:insert_at] + '\n' + tag + ms[insert_at:]
+        else:
+            root_end = ms.find('>')
+            if root_end < 0:
+                raise SystemExit('AndroidManifest.xml root not found')
+            ms = ms[:root_end + 1] + '\n' + tag + ms[root_end + 1:]
 manifest.write_text(ms, encoding='utf-8')
-print('Wi-Fi connection handling hardened: stale suggestions cleared on Android 11+, WPA3/OWE guarded by API level, refusal falls back to Android Wi-Fi settings, required network permissions ensured.')
+print('Wi-Fi connection handling hardened: stale suggestions cleared on Android 11+, WPA3/OWE guarded by API level, refusal falls back to Android Wi-Fi settings, required network permissions ensured without corrupting the manifest XML declaration.')
